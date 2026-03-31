@@ -2,77 +2,553 @@
 
 <!--
 /**
- * ZVT Meldungen zerlegen
- * 
+ * Decode ZVT messages
+ *
  * History
  * Version  1.1 17.11.2023 BHO
- * 
+ *
  */
 -->
 
 <html>
-
 <head>
     <meta http-equiv="Content-type" content="text/html;charset=UTF-8">
-    <title>ZVT Meldungen</title>
-    <style type='text/css'>
+    <title>ZVT Messages</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+
+        body {
+            font-family: 'Segoe UI', Arial, sans-serif;
+            background: #1e1e2e;
+            color: #cdd6f4;
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+            overflow: hidden;
+        }
+
+        /* ── Top bar ── */
+        #topbar {
+            background: #181825;
+            border-bottom: 1px solid #313244;
+            padding: 8px 14px;
+            display: flex;
+            align-items: flex-start;
+            gap: 12px;
+            flex-shrink: 0;
+        }
+        #topbar h2 {
+            font-size: 1em;
+            font-weight: 600;
+            color: #89b4fa;
+            white-space: nowrap;
+            padding-top: 6px;
+        }
+        #zvtbytes {
+            flex: 1;
+            font-family: 'Consolas', monospace;
+            font-size: 0.85em;
+            padding: 5px 10px;
+            background: #313244;
+            border: 1px solid #45475a;
+            border-radius: 4px;
+            color: #cdd6f4;
+            outline: none;
+            resize: vertical;
+            min-height: 32px;
+            height: 80px;
+            line-height: 20px;
+            overflow: auto;
+            word-break: break-all;
+        }
+        #zvtbytes:focus { border-color: #89b4fa; }
+
+        /* ── Info bar ── */
+        #infobar {
+            background: #11111b;
+            border-bottom: 1px solid #313244;
+            padding: 5px 14px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            font-family: 'Consolas', monospace;
+            font-size: 0.82em;
+            flex-shrink: 0;
+            min-height: 30px;
+        }
+        #cmdLabel { color: #6c7086; flex: 1; }
+        #cmdLabel .cmd-bytes { color: #7ec8e3; }
+        #cmdLabel .cmd-name  { color: #cba6f7; font-weight: 700; }
+        #cmdLabel .cmd-extra { color: #6c7086; }
+        #statusBadge {
+            font-size: 0.78em;
+            font-weight: 700;
+            padding: 2px 8px;
+            border-radius: 10px;
+            background: #313244;
+            color: #6c7086;
+            letter-spacing: 0.04em;
+        }
+        #statusBadge.ok    { background: #1e3a2a; color: #a6e3a1; }
+        #statusBadge.error { background: #3a1e1e; color: #f38ba8; }
+        #copyBtn {
+            font-size: 0.78em;
+            font-weight: 700;
+            padding: 2px 10px;
+            border-radius: 10px;
+            border: none;
+            cursor: pointer;
+            background: #313244;
+            color: #6c7086;
+            letter-spacing: 0.04em;
+            transition: background 0.15s, color 0.15s;
+        }
+        #copyBtn:hover  { background: #45475a; color: #cdd6f4; }
+        #copyBtn.copied { background: #1e3a2a; color: #a6e3a1; }
+
+        /* ── Main split ── */
+        #main {
+            display: flex;
+            flex-direction: column;
+            flex: 1;
+            overflow: hidden;
+        }
+
+        /* ── Protocol tree ── */
+        #tree-wrap {
+            flex: 1;
+            overflow-y: auto;
+            padding: 6px 0;
+            background: #1e1e2e;
+        }
+
+        .node { user-select: none; }
+
+        .node-row {
+            display: flex;
+            align-items: baseline;
+            gap: 4px;
+            padding: 1px 8px 1px 0;
+            cursor: pointer;
+            white-space: nowrap;
+        }
+        .node-row:hover { background: #2a2a3e; }
+        .node-row.selected { background: #2a3a5e; }
+
+        .toggle {
+            display: inline-block;
+            width: 16px;
+            text-align: center;
+            color: #585b70;
+            font-size: 0.7em;
+            flex-shrink: 0;
+            cursor: default;
+        }
+        .toggle.has-children { cursor: pointer; }
+        .toggle.has-children:hover { color: #cdd6f4; }
+        .indent { display: inline-block; width: 16px; flex-shrink: 0; }
+
+        .node-label {
+            font-family: 'Consolas', monospace;
+            font-size: 0.82em;
+            color: #89b4fa;
+            flex-shrink: 0;
+        }
+        .node-label.section { color: #cba6f7; font-weight: 700; }
+        .node-label.field   { color: #89dceb; }
+        .node-label.leaf    { color: #7f849c; }
+
+        .node-sep   { color: #45475a; font-family: 'Consolas', monospace; font-size: 0.82em; }
+
+        .node-value {
+            font-family: 'Consolas', monospace;
+            font-size: 0.82em;
+            color: #a6e3a1;
+        }
+        .node-value.hex  { color: #fab387; }
+        .node-value.desc { color: #f9e2af; margin-left: 6px; font-style: italic; }
+        .node-value.err  { color: #f38ba8; }
+
+        .node-children.hidden { display: none; }
+
+        /* ── Hex dump ── */
+        #hexdump-wrap {
+            border-top: 1px solid #313244;
+            background: #181825;
+            padding: 6px 14px;
+            flex-shrink: 0;
+            max-height: 160px;
+            overflow-y: auto;
+        }
+        #hexdump {
+            font-family: 'Consolas', monospace;
+            font-size: 0.78em;
+            line-height: 1.7;
+            white-space: pre;
+        }
+        .hd-line { display: block; }
+        .hd-offset { color: #45475a; }
+        .hd-byte   { color: #fab387; cursor: default; border-radius: 2px; }
+        .hd-gap    { color: #313244; }
+        .hd-sep    { color: #313244; }
+        .hd-achar  { color: #a6e3a1; cursor: default; }
+
+        .hd-byte.hl  { background: #4a3a10; color: #ffd080; border-radius: 2px; }
+        .hd-achar.hl { background: #1e3a1e; color: #80ff80; }
+
+        footer {
+            font-size: 0.7em;
+            color: #45475a;
+            text-align: right;
+            padding: 2px 12px;
+            background: #11111b;
+            border-top: 1px solid #313244;
+            flex-shrink: 0;
+        }
     </style>
 
-    <script type="module">
-        import { getZvtMessage } from './zvt.mjs';
-        window.getZvtMessage = getZvtMessage;
-    </script>
+    <script type="text/javascript" src="zvt.mjs"></script>
+    <script type="text/javascript">
 
-    <script type='text/javascript'>
-        var analysieren = () => {
-            var zvtbytes = document.getElementById("zvtbytes").value;
-            var statusInfo = document.getElementById('status');
-            var zvtComandInfo = document.getElementById('zvtComand');
+        // ── Highlight ─────────────────────────────────────────────
 
-            statusInfo.innerHTML = 'Status';
-            statusInfo.removeAttribute("style");
-            zvtComandInfo.innerHTML = 'Befehl: ';
-            document.getElementById("zvtmessage").value = '';
+        var selectedRow = null;
 
-            var zvtObject = getZvtMessage(zvtbytes);
-            output = JSON.stringify(zvtObject, null, 2);
-            //console.log(output);
+        function highlightBytes(hexStart, hexLen) {
+            document.querySelectorAll('.hd-byte.hl, .hd-achar.hl').forEach(el => el.classList.remove('hl'));
+            if (hexStart == null || hexLen == null) return;
+            for (let i = hexStart; i < hexStart + hexLen; i++) {
+                document.querySelectorAll('[data-idx="' + i + '"]').forEach(el => el.classList.add('hl'));
+            }
+            let first = document.querySelector('.hd-byte.hl');
+            if (first) first.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+        }
 
-            document.getElementById("zvtmessage").value = output;
+        function selectRow(row, hexStart, hexLen) {
+            if (selectedRow) selectedRow.classList.remove('selected');
+            selectedRow = row;
+            row.classList.add('selected');
+            highlightBytes(hexStart, hexLen);
+        }
 
-            if (zvtObject['command']) {
-                zvtComandInfo.innerHTML += zvtObject['ccrc'] + ' ' + zvtObject['aprc'] + ' ';
-                zvtComandInfo.innerHTML += zvtObject['command'];
-                if (zvtObject['status']) {
-                    if ((zvtObject['status']['code']) && (zvtObject['status']['bez'])) {
-                        zvtComandInfo.innerHTML += ' Status: ' + zvtObject['status']['code'] + ' ' + zvtObject['status']['bez'];
+        // ── Hex dump ──────────────────────────────────────────────
+
+        function renderHexDump(hex) {
+            const bytes = hex.match(/.{1,2}/g) || [];
+            let html = '';
+            for (let row = 0; row < bytes.length; row += 16) {
+                const chunk = bytes.slice(row, row + 16);
+                let hexPart = '';
+                let ascPart = '';
+                for (let col = 0; col < 16; col++) {
+                    if (col === 8) hexPart += '<span class="hd-gap"> </span>';
+                    if (col < chunk.length) {
+                        const idx = row + col;
+                        const b = chunk[col];
+                        const c = parseInt(b, 16);
+                        const ch = (c >= 0x20 && c < 0x7f) ? b === '<' ? '&lt;' : b === '>' ? '&gt;' : String.fromCharCode(c) : '.';
+                        hexPart += '<span class="hd-byte" data-idx="' + idx + '">' + b + '</span> ';
+                        ascPart += '<span class="hd-achar" data-idx="' + idx + '">' + ch + '</span>';
+                    } else {
+                        hexPart += '   ';
                     }
                 }
-                if (zvtObject['bmp'])
-                    if (zvtObject['bmp']['27'])
-                        if (zvtObject['bmp']['27']['valBez']) {
-                            zvtComandInfo.innerHTML += ' ' + zvtObject['bmp']['27']['valBez'];
-                        }
+                const offset = row.toString(16).padStart(4, '0');
+                html += '<span class="hd-line"><span class="hd-offset">' + offset + '</span>   ' +
+                        hexPart + ' <span class="hd-sep">│</span>  ' + ascPart + '</span>';
             }
-        };
+            return html;
+        }
+
+        // ── Tree builder ──────────────────────────────────────────
+
+        function makeNode(label, labelClass, value, valueClass, expanded, hexStart, hexLen) {
+            return { label, labelClass: labelClass || 'field', value: value || '',
+                     valueClass: valueClass || '', children: [],
+                     expanded: !!expanded, hexStart: hexStart, hexLen: hexLen };
+        }
+
+        function buildTlvNodes(tlvArray, parentNode) {
+            for (let entry of tlvArray) {
+                for (let tag in entry) {
+                    let t = entry[tag];
+                    let n = makeNode('Tag ' + tag.toUpperCase(), 'field', t.desc || tag, 'desc', true, t._hexStart, t._hexLen);
+                    // For constructed containers (val2 present), only show raw Value as
+                    // fallback when nested parsing produced no items (e.g. parsing error).
+                    const hasNestedItems = t.val2 && t.val2.some(arr => arr.length > 0);
+                    if (t.val !== undefined && t.val !== '' && !hasNestedItems) {
+                        n.children.push(makeNode('Value', 'leaf', String(t.val), 'hex', false, t._hexStart, t._hexLen));
+                    }
+                    if (t.valDesc) {
+                        n.children.push(makeNode('Description', 'leaf', t.valDesc, 'desc', false, t._hexStart, t._hexLen));
+                    }
+                    if (t.val2) {
+                        for (let nested of t.val2) buildTlvNodes(nested, n);
+                    }
+                    parentNode.children.push(n);
+                }
+            }
+        }
+
+        function buildTree(zvt, bmpstart) {
+            let root = makeNode('ZVT Protocol', 'section', '', '', true, 0, zvt.msglen / 2);
+
+            // Header
+            let hdr = makeNode('Header', 'section', '', '', true, 0, bmpstart / 2);
+            hdr.children.push(makeNode('CCRC',   'leaf', zvt.ccrc, 'hex', false, 0, 1));
+            hdr.children.push(makeNode('APRC',   'leaf', zvt.aprc, 'hex', false, 1, 1));
+            if (zvt.length !== undefined) {
+                let lenOff = 2, lenSz = zvt.length === 255 ? 3 : 1;
+                hdr.children.push(makeNode('Length', 'leaf', String(zvt.length), '', false, lenOff, lenSz));
+            }
+            root.children.push(hdr);
+
+            // Command
+            if (zvt.command) {
+                root.children.push(makeNode('Command', 'field', zvt.command, 'desc', false, 0, 2));
+            }
+
+            // Command-specific plain fields
+            for (let key of ['password', 'config-byte', 'CC', 'timeout']) {
+                if (zvt[key] !== undefined) {
+                    let hs = zvt['_hexStart_' + key];
+                    let hl = zvt['_hexLen_'   + key];
+                    root.children.push(makeNode(key, 'field', zvt[key], 'hex', false, hs, hl));
+                }
+            }
+
+            // Result (Abort)
+            if (zvt.result) {
+                let hs = zvt.result._hexStart, hl = zvt.result._hexLen;
+                let r = makeNode('Result', 'section', '', '', true, hs, hl);
+                r.children.push(makeNode('Code',        'leaf', zvt.result.code, 'hex',  false, hs, hl));
+                if (zvt.result.desc)
+                    r.children.push(makeNode('Description', 'leaf', zvt.result.desc, 'desc', false, hs, hl));
+                root.children.push(r);
+            }
+
+            // Status
+            if (zvt.status) {
+                let hs = zvt.status._hexStart, hl = zvt.status._hexLen;
+                let s = makeNode('Status', 'section', '', '', true, hs, hl);
+                s.children.push(makeNode('Code',        'leaf', zvt.status.code, 'hex',  false, hs, hl));
+                if (zvt.status.desc)
+                    s.children.push(makeNode('Description', 'leaf', zvt.status.desc, 'desc', false, hs, hl));
+                root.children.push(s);
+            }
+
+            // BMPs
+            if (zvt.bmp && Object.keys(zvt.bmp).length > 0) {
+                let bmpsNode = makeNode('Fields (BMP)', 'section', '', '', true, bmpstart / 2, (zvt.msglen - bmpstart) / 2);
+                for (let id in zvt.bmp) {
+                    let b = zvt.bmp[id];
+                    let bmpNode = makeNode('BMP ' + id.toUpperCase(), 'field', b.desc || '', 'desc', true, b._hexStart, b._hexLen);
+
+                    if (b.ERROR) {
+                        bmpNode.children.push(makeNode('Error', 'leaf', b.ERROR, 'err', false, b._hexStart, b._hexLen));
+                    } else {
+                        if (b.format) bmpNode.children.push(makeNode('Format', 'leaf', b.format, '',    false, b._hexStart, b._hexLen));
+                        if (b.length  !== undefined) bmpNode.children.push(makeNode('Length', 'leaf', String(b.length), '', false, b._hexStart, b._hexLen));
+                        if (b.val   !== undefined && b.format !== 'TLVcontainer')
+                            bmpNode.children.push(makeNode('Value', 'leaf', String(b.val), 'hex', false, b._hexStart, b._hexLen));
+                        if (b.valDesc)
+                            bmpNode.children.push(makeNode('Description', 'leaf', b.valDesc, 'desc', false, b._hexStart, b._hexLen));
+                        if (b.tlv) {
+                            let tlvNode = makeNode('TLV Container', 'section', '', '', true, b._hexStart, b._hexLen);
+                            buildTlvNodes(b.tlv, tlvNode);
+                            bmpNode.children.push(tlvNode);
+                        }
+                    }
+                    bmpsNode.children.push(bmpNode);
+                }
+                root.children.push(bmpsNode);
+            }
+
+            return root;
+        }
+
+        // ── Tree renderer ─────────────────────────────────────────
+
+        function renderTree(node, depth) {
+            depth = depth || 0;
+            let div = document.createElement('div');
+            div.className = 'node';
+
+            let hasChildren = node.children.length > 0;
+            let row = document.createElement('div');
+            row.className = 'node-row';
+
+            // indentation
+            for (let i = 0; i < depth; i++) {
+                let sp = document.createElement('span');
+                sp.className = 'indent';
+                row.appendChild(sp);
+            }
+
+            // toggle arrow
+            let tog = document.createElement('span');
+            tog.className = 'toggle' + (hasChildren ? ' has-children' : '');
+            tog.textContent = hasChildren ? (node.expanded ? '▼' : '▶') : ' ';
+            row.appendChild(tog);
+
+            // label
+            let lbl = document.createElement('span');
+            lbl.className = 'node-label ' + node.labelClass;
+            lbl.textContent = node.label;
+            row.appendChild(lbl);
+
+            // separator + value
+            if (node.value !== '') {
+                let sep = document.createElement('span');
+                sep.className = 'node-sep';
+                sep.textContent = ':';
+                row.appendChild(sep);
+
+                let val = document.createElement('span');
+                val.className = 'node-value ' + node.valueClass;
+                val.textContent = ' ' + node.value;
+                row.appendChild(val);
+            }
+
+            // arrow click: toggle children only
+            if (hasChildren) {
+                tog.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    let hidden = childWrap.classList.toggle('hidden');
+                    tog.textContent = hidden ? '▶' : '▼';
+                });
+            }
+
+            // row click: select + highlight bytes only
+            row.addEventListener('click', () => {
+                selectRow(row, node.hexStart, node.hexLen);
+            });
+
+            div.appendChild(row);
+
+            // children
+            let childWrap = document.createElement('div');
+            childWrap.className = 'node-children' + (node.expanded ? '' : ' hidden');
+            if (hasChildren) {
+                for (let child of node.children) {
+                    childWrap.appendChild(renderTree(child, depth + 1));
+                }
+            }
+            div.appendChild(childWrap);
+
+            return div;
+        }
+
+        // ── Copy to clipboard ─────────────────────────────────────
+
+        let lastTree = null;
+
+        function treeToText(node, depth) {
+            const indent = '  '.repeat(depth);
+            let line = indent + node.label;
+            if (node.value) line += ':  ' + node.value;
+            let lines = [line];
+            for (let child of node.children) {
+                lines = lines.concat(treeToText(child, depth + 1));
+            }
+            return lines;
+        }
+
+        function copyResult() {
+            if (!lastTree) return;
+            const text = treeToText(lastTree, 0).join('\n');
+            navigator.clipboard.writeText(text).then(() => {
+                const btn = document.getElementById('copyBtn');
+                btn.textContent = 'Copied!';
+                btn.classList.add('copied');
+                setTimeout(() => {
+                    btn.textContent = 'Copy';
+                    btn.classList.remove('copied');
+                }, 1500);
+            });
+        }
+
+        // ── Main ──────────────────────────────────────────────────
+
+        function analysieren() {
+            let raw = document.getElementById('zvtbytes').value;
+            let treeWrap    = document.getElementById('tree-wrap');
+            let hexDump     = document.getElementById('hexdump');
+            let cmdLabel    = document.getElementById('cmdLabel');
+            let statusBadge = document.getElementById('statusBadge');
+
+            selectedRow = null;
+            lastTree = null;
+            treeWrap.innerHTML = '';
+            hexDump.innerHTML  = '';
+            cmdLabel.innerHTML = '<span style="color:#45475a">—</span>';
+            statusBadge.textContent = 'Status';
+            statusBadge.className = '';
+
+            let cleanHex = raw.toLowerCase().replace(/\s/g, '');
+            if (!cleanHex) return;
+
+            let zvt = getZvtMessage(cleanHex);
+
+            // Info bar
+            if (zvt.command) {
+                cmdLabel.innerHTML =
+                    '<span class="cmd-bytes">' + zvt.ccrc + ' ' + zvt.aprc + '</span>  ' +
+                    '<span class="cmd-name">' + zvt.command + '</span>';
+                if (zvt.status && zvt.status.desc)
+                    cmdLabel.innerHTML += '<span class="cmd-extra">  ·  ' + zvt.status.desc + '</span>';
+                if (zvt.bmp && zvt.bmp['27'] && zvt.bmp['27']['valDesc'])
+                    cmdLabel.innerHTML += '<span class="cmd-extra">  ·  ' + zvt.bmp['27']['valDesc'] + '</span>';
+
+                if (zvt.warnings && zvt.warnings.length > 0) {
+                    statusBadge.textContent = zvt.warnings.join(' · ');
+                    statusBadge.className   = 'error';
+                } else {
+                    statusBadge.textContent = zvt.error ? zvt.error : 'OK';
+                    statusBadge.className   = zvt.error ? 'error' : 'ok';
+                }
+            }
+
+            // Hex dump
+            hexDump.innerHTML = renderHexDump(cleanHex);
+
+            // Determine bmpstart (in hex chars) from zvtCommands — approximate from msglen vs bmp offset
+            // Use the first BMP's _hexStart as reference, or fall back to 3
+            let bmpstart = 6;
+            if (zvt.bmp) {
+                let firstBmp = Object.values(zvt.bmp)[0];
+                if (firstBmp && firstBmp._hexStart !== undefined) bmpstart = firstBmp._hexStart * 2;
+            }
+
+            // Tree
+            let tree = buildTree(zvt, bmpstart);
+            lastTree = tree;
+            treeWrap.appendChild(renderTree(tree, 0));
+        }
     </script>
-
-
 </head>
 
 <body>
-    <h2>ZVT Meldungen auswerten.</h2><br />
-    <br />Meldung:<br>
-    <textarea id="zvtbytes" name="zvtbytes" rows="2" cols="160"
-        placeholder="04ff1417010610240e070c42697474652077617274656e" oninput="analysieren();"></textarea>
+    <div id="topbar">
+        <h2>ZVT Analyzer</h2>
+        <textarea id="zvtbytes" rows="3" spellcheck="false"
+            placeholder="paste hex bytes…"
+            oninput="analysieren();"></textarea>
+    </div>
 
-    <br />Auswertung:<br /><br />
-    <div id="zvtComand" name="zvtComand">Befehl</div> <br>
-    <div id="status" name="status">Status</div>
+    <div id="infobar">
+        <div id="cmdLabel"><span style="color:#45475a">—</span></div>
+        <div id="statusBadge">Status</div>
+        <button id="copyBtn" onclick="copyResult()">Copy</button>
+    </div>
 
-    <textarea id="zvtmessage" name="zvtmessage" rows="40" cols="160"></textarea>
+    <div id="main">
+        <div id="tree-wrap"></div>
+        <div id="hexdump-wrap">
+            <div id="hexdump"></div>
+        </div>
+    </div>
 
-    <p style="font-size: 0.8em;">Version 1.2</p>
+    <footer>Version 1.3</footer>
 </body>
-
 </html>
