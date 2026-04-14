@@ -1061,13 +1061,18 @@ function getZvtBmpInfo(hex, start, warnings) {
             let fieldLen = bmpStruct[bmp]['length'];
             bmps[bmp]['format'] = bmpStruct[bmp]['format'];
             if (fieldLen == 'LL') {
-                // 1-byte binary length (0–255)
-                fieldLen = parseInt(hex.substr(start, 2), 16);
-                start += 2;
-            } else if (fieldLen == 'LLL') {
-                // 2-byte big-endian binary length (0–65535)
-                fieldLen = parseInt(hex.substr(start, 4), 16);
+                // 2-byte [FxFy] counter per ZVT spec page 129: length = BCD decimal of low nibbles
+                const llB1 = parseInt(hex.substr(start, 2), 16);
+                const llB2 = parseInt(hex.substr(start + 2, 2), 16);
+                fieldLen = (llB1 & 0x0F) * 10 + (llB2 & 0x0F);
                 start += 4;
+            } else if (fieldLen == 'LLL') {
+                // 3-byte [FxFyFz] counter per ZVT spec: length = BCD decimal of low nibbles
+                const lllB1 = parseInt(hex.substr(start, 2), 16);
+                const lllB2 = parseInt(hex.substr(start + 2, 2), 16);
+                const lllB3 = parseInt(hex.substr(start + 4, 2), 16);
+                fieldLen = (lllB1 & 0x0F) * 100 + (lllB2 & 0x0F) * 10 + (lllB3 & 0x0F);
+                start += 6;
             } else if (fieldLen == 'TLV') {
 
                 let tlvLength = getTlvLength(hex, start);

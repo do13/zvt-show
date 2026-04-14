@@ -63,16 +63,16 @@ describe('BMP fixed-length fields', () => {
 })
 
 describe('BMP variable-length fields (LL / LLL)', () => {
-    it('LL: reads length as 1-byte binary', () => {
-        // 040f 08(len) 22(bmp=pan) 06(LL=6 bytes) 123456789012
-        const r = parse('040f08' + '22' + '06' + '123456789012')
+    it('LL: 2-byte [FxFy] counter, F0F6 = 6 bytes', () => {
+        // 040f 09(len) 22(bmp=pan) f0f6(LL: low nibbles 0,6 → BCD "06") 123456789012
+        const r = parse('040f09' + '22' + 'f0f6' + '123456789012')
         expect(r.bmp['22'].val).toBe('123456789012')
         expect(r.bmp['22'].length).toBe(6)
     })
 
-    it('LL: length 0x0a = 10 bytes (would fail with old nibble-reading)', () => {
-        // pan with 10 bytes BCD
-        const r = parse('040f0c' + '22' + '0a' + '12345678901234567890')
+    it('LL: 2-byte [FxFy] counter, F1F0 = 10 bytes', () => {
+        // 040f 0d(len) 22(bmp=pan) f1f0(LL: low nibbles 1,0 → BCD "10") 12345678901234567890
+        const r = parse('040f0d' + '22' + 'f1f0' + '12345678901234567890')
         expect(r.bmp['22'].val).toBe('12345678901234567890')
         expect(r.bmp['22'].length).toBe(10)
     })
